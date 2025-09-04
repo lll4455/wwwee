@@ -1,0 +1,322 @@
+-- XXTI Ragebot for Criminality (Part 1/2, Simplified)
+-- Features: Auto-aim, hit sounds, wall detection, GUI
+-- Fixed: GUI not showing, parsing errors, reduced lines
+-- Instructions: Copy this part, append Part 2, save as UTF-8 no BOM
+-- Use in private servers to avoid bans
+
+-- Initialize variables
+local a = 'https://raw.githubusercontent.com/mstudio45/LinoriaLib/main/'
+local b
+
+-- Safe load function
+local function safeLoad(url)
+    local success, result = pcall(game.HttpGet, game, url)
+    if not success then
+        warn("Debug: Failed to load " .. url .. ": " .. result)
+        return nil
+    end
+    local success, loaded = pcall(loadstring, result)
+    if not success then
+        warn("Debug: Failed to parse " .. url .. ": " .. loaded)
+        return nil
+    end
+    return loaded()
+end
+
+-- Load LinoriaLib
+print("Debug: Loading library...")
+b = safeLoad(a .. 'Library.lua')
+if not b then
+    warn("Debug: Library loading failed, GUI will not initialize")
+    return
+end
+print("Debug: Library loaded successfully")
+
+-- Create GUI window
+local e
+local success, err = pcall(function()
+    e = b:CreateWindow({Title = 'XXTI [FREE]', Center = true, AutoShow = true})
+end)
+if not success then
+    warn("Debug: Failed to create window: " .. err)
+    return
+end
+print("Debug: Window created:", e and "Yes" or "No")
+
+-- Services and configurations
+local f = {Combat = e:AddTab('Combat')}
+local g = game:GetService("Players")
+local i = g.LocalPlayer
+local j = workspace.CurrentCamera
+local k = game:GetService("ReplicatedStorage")
+local l = {
+    Enabled = false,
+    Cooldown = 1/30,
+    LastShot = 0,
+    TargetLock = "",
+    LockedPlayer = nil,
+    TargetPart = "Head",
+    MaxDistance = 1000,
+    CurrentDistance = 1000,
+    FireRate = 30,
+    PlayHitSound = true,
+    WallbangEnabled = false
+}
+
+-- Wait for character
+local function waitForCharacter()
+    while not i.Character or not i.Character:FindFirstChildOfClass("Humanoid") do
+        print("Debug: Waiting for character...")
+        task.wait(1)
+    end
+    print("Debug: Character loaded")
+end
+
+-- Play hit sound
+local function o()
+    if not l.PlayHitSound then return end
+    local q = Instance.new("Sound")
+    q.SoundId = "rbxassetid://4817809188"
+    q.Volume = 1
+    q.Parent = workspace
+    q:Play()
+    game:GetService("Debris"):AddItem(q, 3)
+end
+
+-- Set fire rate
+local function r(s)
+    if type(s) ~= "number" or s < 1 or s > 100 then
+        b:Notify("Invalid RPS (1-100)")
+        return
+    end
+    l.Cooldown = 1/s
+    l.FireRate = s
+    b:Notify("Fire rate set to: " .. s .. " RPS")
+end
+
+-- Generate random string
+local function t(u)
+    local v = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+    local w = ""
+    for x = 1, u do
+        w = w .. string.sub(v, math.random(1, #v), math.random(1, #v))
+    end
+    return w
+end
+
+-- End of Part 1/2: Append Part 2 below
+-- XXTI Ragebot for Criminality (Part 2/2, Simplified)
+-- Instructions: Append to Part 1 to create full script
+
+-- Update target lock
+local function O()
+    if l.TargetLock == "" then
+        if l.LockedPlayer then
+            l.LockedPlayer = nil
+            b:Notify("Target lock cleared")
+            print("Debug: Target lock cleared")
+        end
+        return
+    end
+    local P = {}
+    local Q = string.lower(l.TargetLock)
+    for _, R in ipairs(g:GetPlayers()) do
+        if R == i then continue end
+        if string.find(string.lower(R.Name), Q, 1, true) then
+            table.insert(P, R)
+            print("Debug: Found matching player: " .. R.Name)
+        end
+    end
+    if #P == 1 then
+        l.LockedPlayer = P[1]
+        b:Notify("LOCKED: " .. P[1].Name)
+        print("Debug: Locked player: " .. P[1].Name)
+    elseif #P > 1 then
+        l.LockedPlayer = nil
+        b:Notify("Multiple matches found")
+    else
+        l.LockedPlayer = nil
+        b:Notify("Target lost")
+        print("Debug: No matching players")
+    end
+end
+
+-- Check if wall between player and target
+local function isWallBetween(startPos, targetPos, targetCharacter)
+    local rayDirection = (targetPos - startPos).Unit * l.MaxDistance
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {i.Character, targetCharacter}
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    raycastParams.IgnoreWater = true
+    local success, raycastResult = pcall(function()
+        return workspace:Raycast(startPos, rayDirection, raycastParams)
+    end)
+    if success and raycastResult then
+        print("Debug: Wall detected: " .. raycastResult.Instance.Name)
+        return true
+    end
+    print("Debug: No wall detected")
+    return false
+end
+
+-- Find target
+local function X()
+    if not i.Character then
+        print("Debug: No character found")
+        return nil
+    end
+    local Y = i.Character:FindFirstChild("HumanoidRootPart")
+    if not Y then
+        print("Debug: No HumanoidRootPart")
+        return nil
+    end
+    print("Debug: Checking targets, MaxDistance: " .. l.CurrentDistance)
+    if l.LockedPlayer then
+        local Z = l.LockedPlayer
+        local _ = Z.Character
+        if not _ or not _.HumanoidRootPart or not _.Humanoid or _.Humanoid.Health <= 0 then
+            l.LockedPlayer = nil
+            print("Debug: Locked player invalid")
+            return nil
+        end
+        local a3 = (Z.Character.HumanoidRootPart.Position - Y.Position).Magnitude
+        if a3 <= l.CurrentDistance then
+            if not l.WallbangEnabled and isWallBetween(Y.Position, Z.Character.HumanoidRootPart.Position, _) then
+                print("Debug: Locked player blocked by wall")
+                return nil
+            end
+            print("Debug: Selected locked player: " .. Z.Name)
+            return Z
+        end
+        print("Debug: Locked player out of range")
+        return nil
+    end
+    local Z, a3 = nil, l.CurrentDistance
+    for _, R in ipairs(g:GetPlayers()) do
+        if R == i then continue end
+        local _ = R.Character
+        if _ and _.HumanoidRootPart and _.Humanoid and _.Humanoid.Health > 0 then
+            local a5 = (_.HumanoidRootPart.Position - Y.Position).Magnitude
+            if a5 <= l.CurrentDistance and a5 < a3 then
+                if not l.WallbangEnabled and isWallBetween(Y.Position, _.HumanoidRootPart.Position, _) then
+                    print("Debug: Player " .. R.Name .. " blocked by wall")
+                else
+                    Z = R
+                    a3 = a5
+                    print("Debug: Potential target: " .. R.Name)
+                end
+            end
+        end
+    end
+    if Z then
+        print("Debug: Selected target: " .. Z.Name)
+        return Z
+    end
+    print("Debug: No valid target")
+    return nil
+end
+
+-- Fire at target
+local function a6(Z)
+    if not Z or not Z.Character then
+        print("Debug: Invalid target")
+        return
+    end
+    local a7 = Z.Character:FindFirstChild(l.TargetPart) or Z.Character:FindFirstChild("Head")
+    if not a7 then
+        print("Debug: No valid target part")
+        return
+    end
+    if not i.Character then
+        print("Debug: No local character")
+        return
+    end
+    local a8 = i.Character:FindFirstChildOfClass("Tool")
+    if not a8 then
+        b:Notify("No tool equipped!")
+        local tool = i.Backpack:FindFirstChildOfClass("Tool")
+        if tool and i.Character.Humanoid then
+            i.Character.Humanoid:EquipTool(tool)
+            task.wait(0.1)
+            a8 = i.Character:FindFirstChildOfClass("Tool")
+            if not a8 then return end
+            print("Debug: Auto-equipped tool: " .. a8.Name)
+        else
+            print("Debug: No tool in backpack")
+            return
+        end
+    end
+    if not k:FindFirstChild("Events") or not k.Events:FindFirstChild("GNX_S") then
+        b:Notify("Remote events not found!")
+        return
+    end
+    local startPos = j.CFrame.Position
+    local targetPos = a7.Position
+    local aa = (targetPos - startPos).Unit
+    local ab = t(30) .. "0"
+    local success, err = pcall(function()
+        k.Events.GNX_S:FireServer(tick(), ab, a8, "FDS9I83", startPos, {aa}, false)
+    end)
+    if not success then
+        print("Debug: FireServer failed: " .. err)
+        return
+    end
+    if a8:FindFirstChild("Hitmarker") then
+        a8.Hitmarker:Fire(a7)
+        o()
+    end
+    print("Debug: Fired at target: " .. Z.Name)
+end
+
+-- Main loop
+task.spawn(function()
+    local success, err = pcall(function()
+        waitForCharacter()
+        while true do
+            if l.Enabled then
+                O()
+                local ac = tick()
+                if ac - l.LastShot >= l.Cooldown then
+                    local Z = X()
+                    if Z then
+                        a6(Z)
+                        l.LastShot = ac
+                    end
+                end
+            end
+            task.wait()
+        end
+    end)
+    if not success then
+        warn("Debug: Main loop failed: " .. err)
+    end
+end)
+
+-- GUI setup
+local ad = f.Combat:AddRightGroupbox('Ragebot Settings')
+local success, err = pcall(function()
+    ad:AddToggle('RagebotToggle', {Text = 'Enable Ragebot', Default = false, Callback = function(ae) l.Enabled = ae end})
+    ad:AddSlider('FireRateSlider', {Text = 'Fire Rate (RPS)', Min = 1, Max = 100, Default = 30, Rounding = 0, Callback = r})
+    ad:AddToggle('HitSoundToggle', {Text = 'Hit Sound', Default = true, Callback = function(ae) l.PlayHitSound = ae end})
+    ad:AddToggle('WallbangToggle', {Text = 'Enable Wallbang', Default = false, Callback = function(ae)
+        l.WallbangEnabled = ae
+        b:Notify("Wallbang " .. (ae and "enabled" or "disabled"))
+    end})
+    ad:AddInput('DistanceInput', {Text = 'Max Distance (1-3000)', Default = '1000', Numeric = true, Callback = function(ae)
+        local ag = tonumber(ae)
+        if ag and ag >= 1 and ag <= 3000 then
+            l.MaxDistance = ag
+            l.CurrentDistance = ag
+            b:Notify("Distance set to: " .. ag)
+        else
+            b:Notify("Invalid distance")
+        end
+    end})
+    ad:AddInput('TargetLockInput', {Text = 'Lock Target', Default = '', Callback = function(ae) l.TargetLock = ae O() end})
+end)
+if not success then
+    warn("Debug: GUI setup failed: " .. err)
+end
+b:Notify("Ragebot loaded with wall detection")
+
+-- End of Part 2/2: Merge with Part 1 to run
