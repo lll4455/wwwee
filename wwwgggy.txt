@@ -1,0 +1,447 @@
+-- XXTI Ragebot for Criminality (Part 1/2, with Wall Check and Updated Wallbang)
+-- Features: Auto-aim, hit sounds, bullet tracers, wall detection, wall check, target part selection, GUI
+-- Fixed: No valid target, HumanoidRootPart crash
+-- Instructions: Copy this part, append Part 2, save as UTF-8 no BOM
+-- Use in private servers to avoid bans
+
+-- Initialize variables
+local a = 'https://raw.githubusercontent.com/mstudio45/LinoriaLib/main/'
+local b
+local m = {Enabled = false, ActiveTraces = {}, Duration = 3, WallCheck = false}
+
+-- Safe load function
+local function safeLoad(url)
+    local success, result = pcall(game.HttpGet, game, url)
+    if not success then
+        warn("Debug: Failed to load " .. url .. ": " .. result)
+        return nil
+    end
+    local success, loaded = pcall(loadstring, result)
+    if not success then
+        warn("Debug: Failed to parse " .. url .. ": " .. loaded)
+        return nil
+    end
+    return loaded()
+end
+
+-- Load LinoriaLib
+print("Debug: Loading library...")
+b = safeLoad(a .. 'Library.lua')
+if not b then
+    warn("Debug: Library loading failed, GUI will not initialize")
+    return
+end
+print("Debug: Library loaded successfully")
+
+-- Create GUI window
+local e
+local success, err = pcall(function()
+    e = b:CreateWindow({Title = 'XXTI [FREE]', Center = true, AutoShow = true})
+end)
+if not success then
+    warn("Debug: Failed to create window: " .. err)
+    return
+end
+print("Debug: Window created:", e and "Yes" or "No")
+
+-- Services and configurations
+local f = {Combat = e:AddTab('Combat')}
+local g = game:GetService("Players")
+local i = g.LocalPlayer
+local j = workspace.CurrentCamera
+local k = game:GetService("ReplicatedStorage")
+local l = {
+    Enabled = false,
+    Cooldown = 1/30,
+    LastShot = 0,
+    TargetLock = "",
+    LockedPlayer = nil,
+    TargetPart = "Head",
+    MaxDistance = 1000,
+    CurrentDistance = 1000,
+    FireRate = 30,
+    PlayHitSound = true,
+    WallbangEnabled = false
+}
+
+-- Wait for character
+local function waitForCharacter()
+    while not i.Character or not i.Character:FindFirstChildOfClass("Humanoid") do
+        print("Debug: Waiting for character...")
+        task.wait(1)
+    end
+    print("Debug: Character loaded")
+end
+
+-- Play hit sound
+local function o()
+    if not l.PlayHitSound then return end
+    local q = Instance.new("Sound")
+    q.SoundId = "rbxassetid://4817809188"
+    q.Volume = 1
+    q.Parent = workspace
+    q:Play()
+    game:GetService("Debris"):AddItem(q, 3)
+end
+
+-- Set fire rate
+local function r(s)
+    if type(s) ~= "number" or s < 1 or s > 100 then
+        b:Notify("Invalid RPS (1-100)")
+        return
+    end
+    l.Cooldown = 1/s
+    l.FireRate = s
+    b:Notify("Fire rate set to: " .. s .. " RPS")
+end
+
+-- Generate random string
+local function t(u)
+    local v = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"
+    local w = ""
+    for x = 1, u do
+        w = w .. string.sub(v, math.random(1, #v), math.random(1, #v))
+    end
+    return w
+end
+
+-- Create bullet tracer
+local function y(z, startPos)
+    if not m.Enabled then return end
+    if not i.Character or not i.Character:FindFirstChild("Head") then
+        print("Debug: No character for tracer")
+        return
+    end
+    local B = Instance.new("Part")
+    B.Name = "BulletTracer_" .. t(8)
+    B.Anchored = true
+    B.CanCollide = false
+    B.Transparency = 0.3
+    B.Color = Color3.fromRGB(255, 255, 255)
+    B.Material = Enum.Material.Neon
+    B.Size = Vector3.new(0.1, 0.1, (startPos - z.Position).Magnitude)
+    B.CFrame = CFrame.new((startPos + z.Position) / 2, z.Position)
+    local C = Instance.new("PointLight")
+    C.Brightness = 5
+    C.Range = 10
+    C.Color = Color3.fromRGB(255, 255, 255)
+    C.Parent = B
+    B.Parent = j
+    m.ActiveTraces[B] = true
+    delay(m.Duration, function()
+        if B and B.Parent then
+            B:Destroy()
+            m.ActiveTraces[B] = nil
+        end
+    end)
+    print("Debug: Tracer created for target")
+end
+
+-- End of Part 1/2: Append Part 2 below
+-- XXTI Ragebot for Criminality (Part 2/2, with Wall Check and Updated Wallbang)
+-- Instructions: Append to Part 1 to create full script
+
+-- Update target lock
+local function O()
+    if l.TargetLock == "" then
+        if l.LockedPlayer then
+            l.LockedPlayer = nil
+            b:Notify("Target lock cleared")
+            print("Debug: Target lock cleared")
+        end
+        return
+    end
+    local P = {}
+    local Q = string.lower(l.TargetLock)
+    for _, R in ipairs(g:GetPlayers()) do
+        if R == i then continue end
+        if string.find(string.lower(R.Name), Q, 1, true) then
+            table.insert(P, R)
+            print("Debug: Found matching player: " .. R.Name)
+        end
+    end
+    if #P == 1 then
+        l.LockedPlayer = P[1]
+        b:Notify("LOCKED: " .. P[1].Name)
+        print("Debug: Locked player: " .. P[1].Name)
+    elseif #P > 1 then
+        l.LockedPlayer = nil
+        b:Notify("Multiple matches found")
+    else
+        l.LockedPlayer = nil
+        b:Notify("Target lost")
+        print("Debug: No matching players")
+    end
+end
+
+-- Check if wall between player and target
+local function isWallBetween(startPos, targetPos, targetCharacter)
+    local rayDirection = (targetPos - startPos).Unit * l.MaxDistance
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {i.Character, targetCharacter}
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    raycastParams.IgnoreWater = true
+    local success, raycastResult = pcall(function()
+        return workspace:Raycast(startPos, rayDirection, raycastParams)
+    end)
+    if success and raycastResult and raycastResult.Instance.Transparency < 0.9 then
+        print("Debug: Wall detected: " .. raycastResult.Instance.Name)
+        return true
+    end
+    print("Debug: No wall detected")
+    return false
+end
+
+-- Detect wall count
+local function getWallProperties(startPos, targetPos)
+    local rayDirection = (targetPos - startPos).Unit * l.MaxDistance
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {i.Character}
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    raycastParams.IgnoreWater = true
+    local wallCount = 0
+    local lastPosition = startPos
+    local maxIterations = 5
+    for _ = 1, maxIterations do
+        local success, raycastResult = pcall(function()
+            return workspace:Raycast(lastPosition, (targetPos - lastPosition).Unit * l.MaxDistance, raycastParams)
+        end)
+        if not success or not raycastResult or raycastResult.Instance.Transparency >= 0.9 then
+            break
+        end
+        wallCount = wallCount + 1
+        lastPosition = raycastResult.Position + (targetPos - lastPosition).Unit * 0.1
+    end
+    print("Debug: Wall count: " .. wallCount)
+    return wallCount
+end
+
+-- Calculate optimal shooting position
+local function getOptimalStartPos(startPos, targetPos, wallCount)
+    local offset = Vector3.new(0, 0, 0)
+    local wallbangMode = "None"
+    if l.WallbangEnabled and wallCount > 0 then
+        if wallCount == 1 then
+            offset = Vector3.new(0, 10, 0) -- Up for one wall
+            wallbangMode = "Elevated"
+        else
+            offset = Vector3.new(0, -5, 0) -- Down for multiple walls
+            wallbangMode = "Underground"
+        end
+    end
+    local newStartPos = startPos + offset
+    print("Debug: Wallbang mode: " .. wallbangMode .. ", Start position: " .. tostring(newStartPos))
+    return newStartPos, wallbangMode
+end
+
+-- Find target
+local function X()
+    if not i.Character or not i.Character:FindFirstChild("HumanoidRootPart") then
+        print("Debug: No local character or HumanoidRootPart")
+        return nil
+    end
+    local Y = i.Character.HumanoidRootPart
+    print("Debug: Checking targets, MaxDistance: " .. l.CurrentDistance)
+    local success, result = pcall(function()
+        if l.LockedPlayer and l.LockedPlayer.Character then
+            local Z = l.LockedPlayer
+            local _ = Z.Character
+            local a0 = _.HumanoidRootPart
+            local a1 = _.Humanoid
+            if a0 and a1 and a1.Health > 0 then
+                local a3 = (a0.Position - Y.Position).Magnitude
+                if a3 <= l.CurrentDistance then
+                    if m.WallCheck or not l.WallbangEnabled then
+                        if isWallBetween(Y.Position, a0.Position, _) then
+                            print("Debug: Locked player " .. Z.Name .. " blocked by wall")
+                            return nil
+                        end
+                    end
+                    print("Debug: Selected locked player: " .. Z.Name)
+                    return Z
+                end
+                print("Debug: Locked player " .. Z.Name .. " out of range: " .. a3)
+                return nil
+            end
+            l.LockedPlayer = nil
+            print("Debug: Locked player invalid")
+            return nil
+        end
+        local Z, a3 = nil, l.CurrentDistance
+        for _, R in ipairs(g:GetPlayers()) do
+            if R == i then continue end
+            local _ = R.Character
+            if _ and _.HumanoidRootPart and _.Humanoid and _.Humanoid.Health > 0 then
+                local a5 = (_.HumanoidRootPart.Position - Y.Position).Magnitude
+                if a5 <= l.CurrentDistance and a5 < a3 then
+                    if m.WallCheck or not l.WallbangEnabled then
+                        if isWallBetween(Y.Position, _.HumanoidRootPart.Position, _) then
+                            print("Debug: Player " .. R.Name .. " blocked by wall")
+                        else
+                            Z = R
+                            a3 = a5
+                            print("Debug: Potential target: " .. R.Name .. " at " .. a5)
+                        end
+                    else
+                        Z = R
+                        a3 = a5
+                        print("Debug: Potential target: " .. R.Name .. " at " .. a5)
+                    end
+                end
+            end
+        end
+        if Z then
+            print("Debug: Selected target: " .. Z.Name)
+            return Z
+        end
+        print("Debug: No valid target")
+        return nil
+    end)
+    if not success then
+        warn("Debug: Target selection failed: " .. result)
+        return nil
+    end
+    return result
+end
+
+-- Fire at target
+local function a6(Z)
+    local success, err = pcall(function()
+        if not Z or not Z.Character then
+            print("Debug: Invalid target")
+            return
+        end
+        local parts = {"Head", "UpperTorso", "LowerTorso"}
+        local a7 = l.TargetPart == "Random" and Z.Character:FindFirstChild(parts[math.random(1, 3)]) or Z.Character:FindFirstChild(l.TargetPart) or Z.Character:FindFirstChild("Head")
+        if not a7 then
+            print("Debug: No valid target part")
+            return
+        end
+        if not i.Character or not i.Character.Humanoid then
+            print("Debug: No local character")
+            return
+        end
+        local a8 = i.Character:FindFirstChildOfClass("Tool")
+        if not a8 then
+            b:Notify("No tool equipped!")
+            local tool = i.Backpack:FindFirstChildOfClass("Tool")
+            if tool and i.Character.Humanoid then
+                i.Character.Humanoid:EquipTool(tool)
+                task.wait(0.1)
+                a8 = i.Character:FindFirstChildOfClass("Tool")
+                if not a8 then
+                    print("Debug: Failed to equip tool")
+                    return
+                end
+                print("Debug: Auto-equipped tool: " .. a8.Name)
+            else
+                print("Debug: No tool in backpack")
+                return
+            end
+        end
+        if not k:FindFirstChild("Events") or not k.Events:FindFirstChild("GNX_S") then
+            b:Notify("Remote events not found!")
+            for _, event in pairs(k.Events:GetChildren()) do
+                print("Debug: Available event: " .. event.Name)
+            end
+            return
+        end
+        local startPos = j.CFrame.Position
+        local targetPos = a7.Position
+        local newStartPos, wallbangMode = startPos, "None"
+        if l.WallbangEnabled then
+            local wallCount = getWallProperties(startPos, targetPos)
+            newStartPos, wallbangMode = getOptimalStartPos(startPos, targetPos, wallCount)
+            if wallbangMode == "None" then
+                print("Debug: No valid wallbang position")
+                return
+            end
+        end
+        local aa = (targetPos - newStartPos).Unit
+        local ab = t(30) .. "0"
+        k.Events.GNX_S:FireServer(tick(), ab, a8, "FDS9I83", newStartPos, {aa}, false)
+        if a8:FindFirstChild("Hitmarker") then
+            a8.Hitmarker:Fire(a7)
+            o()
+        end
+        if m.Enabled then
+            y(a7, newStartPos)
+        end
+        print("Debug: Fired at target: " .. Z.Name .. " (" .. a7.Name .. ", Wallbang: " .. wallbangMode .. ")")
+    end)
+    if not success then
+        warn("Debug: Fire failed: " .. err)
+    end
+end
+
+-- Main loop
+task.spawn(function()
+    local success, err = pcall(function()
+        waitForCharacter()
+        while true do
+            if l.Enabled then
+                O()
+                local ac = tick()
+                if ac - l.LastShot >= l.Cooldown then
+                    local Z = X()
+                    if Z then
+                        a6(Z)
+                        l.LastShot = ac
+                    end
+                    task.wait(0.1)
+                end
+            end
+            task.wait()
+        end
+    end)
+    if not success then
+        warn("Debug: Main loop failed: " .. err)
+    end
+end)
+
+-- GUI setup
+local ad = f.Combat:AddRightGroupbox('Ragebot Settings')
+local success, err = pcall(function()
+    ad:AddToggle('RagebotToggle', {Text = 'Enable Ragebot', Default = false, Callback = function(ae) l.Enabled = ae end})
+    ad:AddSlider('FireRateSlider', {Text = 'Fire Rate (RPS)', Min = 1, Max = 100, Default = 30, Rounding = 0, Callback = r})
+    ad:AddToggle('HitSoundToggle', {Text = 'Hit Sound', Default = true, Callback = function(ae) l.PlayHitSound = ae end})
+    ad:AddToggle('WallbangToggle', {Text = 'Enable Wallbang', Default = false, Callback = function(ae)
+        l.WallbangEnabled = ae
+        b:Notify("Wallbang " .. (ae and "enabled" or "disabled"))
+    end})
+    ad:AddToggle('WallCheckToggle', {Text = 'Wall Check', Default = false, Callback = function(ae)
+        m.WallCheck = ae
+        b:Notify("Wall check " .. (ae and "enabled" or "disabled"))
+    end})
+    ad:AddToggle('TracerToggle', {Text = 'Bullet Tracer', Default = false, Callback = function(ae)
+        m.Enabled = ae
+        b:Notify("Bullet tracer " .. (ae and "enabled" or "disabled"))
+        if not ae then
+            for af in pairs(m.ActiveTraces) do
+                if af and af.Parent then af:Destroy() end
+            end
+            m.ActiveTraces = {}
+        end
+    end})
+    ad:AddInput('DistanceInput', {Text = 'Max Distance (1-3000)', Default = '1000', Numeric = true, Callback = function(ae)
+        local ag = tonumber(ae)
+        if ag and ag >= 1 and ag <= 3000 then
+            l.MaxDistance = ag
+            l.CurrentDistance = ag
+            b:Notify("Distance set to: " .. ag)
+        else
+            b:Notify("Invalid distance")
+        end
+    end})
+    ad:AddInput('TargetLockInput', {Text = 'Lock Target', Default = '', Callback = function(ae) l.TargetLock = ae O() end})
+    ad:AddDropdown('TargetPartDropdown', {Text = 'Target Part', Values = {"Head", "UpperTorso", "LowerTorso", "Random"}, Default = 1, Callback = function(ae)
+        l.TargetPart = ae
+        b:Notify("Target part set to: " .. ae)
+    end})
+end)
+if not success then
+    warn("Debug: GUI setup failed: " .. err)
+end
+b:Notify("Ragebot loaded with wall check and updated wallbang")
+
+-- End of Part 2/2: Merge with Part 1 to run
